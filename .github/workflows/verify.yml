@@ -1,0 +1,22 @@
+name: verify
+
+# The package is built locally, because build.py reads the cameras out of an
+# installed copy of the game and no runner has one. What CI can do is prove the
+# committed package is still correct, which is everything that actually ships.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify the package
+        run: python verify.py

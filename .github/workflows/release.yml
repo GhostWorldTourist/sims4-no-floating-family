@@ -1,0 +1,65 @@
+name: release
+
+# Publishes a tagged build to Nexus Mods.
+#
+# The Nexus upload API is update-only: the mod page must already exist and have
+# had at least one file uploaded by hand. This workflow replaces that file with
+# a new version - it cannot create the page.
+#
+# Before the first run, set:
+#   secret  NEXUSMODS_API_KEY  - from your Nexus account API keys page
+#   var     NEXUS_FILE_ID      - Files tab -> API Info on the live mod page
+#   var     NEXUS_MOD_ID       - NOT the number in the mod URL. That is the
+#                                game-scoped id. Resolve the real one via
+#                                https://api.nexusmods.com/v3/games/thesims4/mods/<url-number>
+#                                and take the `id` field. Only needed for changelogs.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Never ship a package that does not pass its own check, even on a tag.
+      - name: Verify before publishing
+        run: python verify.py
+
+      - name: Refuse to publish without the Nexus ids
+        run: |
+          test -n "${{ vars.NEXUS_FILE_ID }}" || {
+            echo "NEXUS_FILE_ID is not set. Create the mod page and upload the"
+            echo "first file by hand, then take the file id from Files -> API Info."
+            exit 1; }
+
+      - name: Build the archive
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          zip -j "NoFloatingFamily-$VERSION.zip" \
+            GhostWorldTourist_NoFloatingFamilyInMainMenu.package README.md
+          echo "ARCHIVE=NoFloatingFamily-$VERSION.zip" >> "$GITHUB_ENV"
+
+      - name: Upload to Nexus Mods
+        id: nexus
+        uses: Nexus-Mods/upload-action@v1
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ vars.NEXUS_FILE_ID }}
+          mod_id: ${{ vars.NEXUS_MOD_ID }}
+          filename: ${{ env.ARCHIVE }}
+          version: ${{ env.VERSION }}
+          display_name: No Floating Family ${{ env.VERSION }}
+          category: main
+          update_mod_version: true
+          archive_existing_version: true
+
+      - name: Report
+        run: echo "published version_id ${{ steps.nexus.outputs.version_id }}"
