@@ -6,7 +6,12 @@ name: release
 # had at least one file uploaded by hand. This workflow replaces that file with
 # a new version - it cannot create the page.
 #
-# Before the first run, set:
+# Until that page exists the upload is SKIPPED, not failed. "No Nexus page yet"
+# is a normal state for a new mod, and a workflow that goes red for it teaches
+# people to ignore red. The last step always runs and says which happened, so a
+# skip can never be mistaken for a publish.
+#
+# Before the first real run, set:
 #   secret  NEXUSMODS_API_KEY  - from your Nexus account API keys page
 #   var     NEXUS_FILE_ID      - Files tab -> API Info on the live mod page
 #   var     NEXUS_MOD_ID       - NOT the number in the mod URL. That is the
@@ -28,16 +33,21 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Never ship a package that does not pass its own check, even on a tag.
+      # Never publish a package that does not pass its own check, even on a tag.
       - name: Verify before publishing
         run: python verify.py
 
-      - name: Refuse to publish without the Nexus ids
+      - name: Work out whether Nexus is configured
+        id: cfg
+        env:
+          FILE_ID: ${{ vars.NEXUS_FILE_ID }}
+          API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
         run: |
-          test -n "${{ vars.NEXUS_FILE_ID }}" || {
-            echo "NEXUS_FILE_ID is not set. Create the mod page and upload the"
-            echo "first file by hand, then take the file id from Files -> API Info."
-            exit 1; }
+          if [ -n "$FILE_ID" ] && [ -n "$API_KEY" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build the archive
         run: |
@@ -47,8 +57,16 @@ jobs:
             GhostWorldTourist_NoFloatingFamilyInMainMenu.package README.md
           echo "ARCHIVE=NoFloatingFamily-$VERSION.zip" >> "$GITHUB_ENV"
 
+      # Keeps a downloadable build against every tag, even before Nexus exists.
+      - name: Attach the archive to this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+
       - name: Upload to Nexus Mods
         id: nexus
+        if: steps.cfg.outputs.ready == 'true'
         uses: Nexus-Mods/upload-action@v1
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
@@ -61,5 +79,14 @@ jobs:
           update_mod_version: true
           archive_existing_version: true
 
-      - name: Report
-        run: echo "published version_id ${{ steps.nexus.outputs.version_id }}"
+      # Always runs, so a skip is never mistaken for a publish.
+      - name: Say what happened
+        run: |
+          if [ "${{ steps.cfg.outputs.ready }}" = "true" ]; then
+            echo "Published to Nexus. version_id=${{ steps.nexus.outputs.version_id }}"
+          else
+            echo "NOT published to Nexus - it is not configured yet."
+            echo "The built archive is attached to this run as an artifact."
+            echo "To enable: create the mod page, upload the first file by hand,"
+            echo "then set the NEXUSMODS_API_KEY secret and NEXUS_FILE_ID variable."
+          fi
