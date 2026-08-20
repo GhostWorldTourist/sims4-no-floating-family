@@ -11,6 +11,11 @@ name: release
 # people to ignore red. The last step always runs and says which happened, so a
 # skip can never be mistaken for a publish.
 #
+# The action is pinned to an exact beta tag. There is no `v1` to float on - the
+# upload API is itself in open beta - and GitHub resolves every action at job
+# setup, before any `if:` runs, so an unresolvable ref fails the whole job even
+# when the step that uses it would have been skipped.
+#
 # Before the first real run, set:
 #   secret  NEXUSMODS_API_KEY  - from your Nexus account API keys page
 #   var     NEXUS_FILE_ID      - Files tab -> API Info on the live mod page
@@ -67,7 +72,7 @@ jobs:
       - name: Upload to Nexus Mods
         id: nexus
         if: steps.cfg.outputs.ready == 'true'
-        uses: Nexus-Mods/upload-action@v1
+        uses: Nexus-Mods/upload-action@v1.0.0-beta.10
         with:
           api_key: ${{ secrets.NEXUSMODS_API_KEY }}
           file_id: ${{ vars.NEXUS_FILE_ID }}
